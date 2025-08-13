@@ -171,7 +171,7 @@ Error_Type GemmFFI(cudaStream_t stream, Buffer_Type lhs, Buffer_Type lhs_scale_i
   auto num_math_sm = cuda::sm_count() - getenv<int>("NVTE_EXT_MARGIN_SM", 0);
   nvte_cublas_gemm(rhs_.data(), lhs_.data(), out_.data(), bias_.data(), pre_gelu_.data(),
                    rhs_transposed, lhs_transposed, grad, workspace_.data(), false,
-                   use_split_accumulator, num_math_sm, stream);
+                   use_split_accumulator, num_math_sm, 1, stream);
 
   return ffi_with_cuda_error_check();
 }
