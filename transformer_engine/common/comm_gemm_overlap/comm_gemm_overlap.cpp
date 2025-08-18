@@ -1085,6 +1085,10 @@ void CommOverlapP2PBase::split_overlap_rs(const TensorWrapper &A, bool transa,
   userbuffers_tiny_delay(_stream_send[0]);
   NVTE_CHECK_CUDA(cudaEventRecord(_start_compute, _stream_send[0]));
 
+  // Don't send any messages until all processes have gotten to this point
+  // This is a performance optimization.
+  userbuffers_barrier(_ub_reg, _tp_id, _tp_size, _rank_round_tp, _ub_comm, _stream_send[0]);
+
   // GEMM and send/recv chunks
   for (int i = 0; i < _tp_size; i++) {
     // GEMM chunk
