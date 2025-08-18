@@ -2312,6 +2312,38 @@ static __global__ void tiny_delay_kern() {
 
 void userbuffers_tiny_delay(cudaStream_t stream) { tiny_delay_kern<<<1, 1, 0, stream>>>(); }
 
+// Same as userbuffers_send, but explicitly doesn't use the CE, regardless of the comm preferences.
+void userbuffers_send_sm(const int srchandler, const size_t srcoffset, const int dsthandler,
+                      const size_t dstoffset, const size_t bytes, communicator *comm,
+                      const int peer, cudaStream_t stream) {
+  int peerlocal = peer % comm->nvsize;
+  void *flagptr = GET_SEND_PTR_BY_INDEX(peerlocal, comm, dsthandler, 0);
+  // void *ce_send_start_ptr = GET_SEND_PTR_BY_INDEX(peerlocal, comm, dsthandler, 1);
+  // void *ce_send_end_ptr   = GET_SEND_PTR_BY_INDEX(peerlocal, comm, dsthandler, 2);
+  bool signalonly = (bytes / 16 == 0);
+
+  assert(INTRANODE(peer));
+
+  if (!(comm->launch_mode & NVTE_LAUNCH_GPU)) return;
+  if (comm->push == 0) {
+    kuserbuffers_pullsend<<<1, 1, 0, stream>>>(comm->myrank, peer, &(comm->send_id[peer]),
+                                               reinterpret_cast<int *>(flagptr));
+  } else {
+    void *srcptr = reinterpret_cast<char *>(comm->mem_ptr[srchandler]) + srcoffset;
+    void *dstptr = reinterpret_cast<char *>(comm->peer_ptr[dsthandler][peerlocal]) + dstoffset;
+
+    SETUP_LAUNCH_CONFIG(signalonly ? 1 : comm->sms, signalonly ? 1 : 1024, stream);
+    int *arg1 = &comm->send_id[peer], *arg2 = reinterpret_cast<int *>(flagptr);
+    int4 *arg3 = reinterpret_cast<int4 *>(srcptr), *arg4 = reinterpret_cast<int4 *>(dstptr);
+    int arg5 = signalonly ? 0 : bytes / 16;
+    void *kernelArgs[] = {reinterpret_cast<void *>(&arg1), reinterpret_cast<void *>(&arg2),
+                          reinterpret_cast<void *>(&arg3), reinterpret_cast<void *>(&arg4),
+                          reinterpret_cast<void *>(&arg5)};
+    NVTE_CHECK_CUDA(
+        cudaLaunchKernelExC(&cfg, reinterpret_cast<void *>(kuserbuffers_pushsend), kernelArgs));
+  }
+}
+
 void userbuffers_send(const int srchandler, const size_t srcoffset, const int dsthandler,
                       const size_t dstoffset, const size_t bytes, communicator *comm,
                       const int peer, cudaStream_t stream) {

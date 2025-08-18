@@ -267,6 +267,9 @@ output is strided: row starts separated by stride elements*/
 // pull model: data ready to be pulled by receiver(no barrier needed)
 
 void userbuffers_tiny_delay(cudaStream_t stream);
+void userbuffers_send_sm(const int srchandler, const size_t srcoffset, const int dsthandler,
+                      const size_t dstoffset, const size_t bytes, communicator *comm,
+                      const int peer, cudaStream_t stream);
 void userbuffers_send(const int srchandler, const size_t srcoffset, const int dsthandler,
                       const size_t dstoffset, const size_t bytes, communicator *comm,
                       const int peer, cudaStream_t stream = 0);
