@@ -2511,12 +2511,12 @@ struct BarrierParams {
   int *recv_flagptrs[8];
   int *recv_ids[8];
   int n;
-}
+};
 __global__ void __launch_bounds__(1) kuserbuffers_barrier(BarrierParams params, uint64_t ub_timeout) {
   
   for (int i = 0; i < params.n; i++) {
     // Increment the pointer on the remote
-    atomicAdd_system(parms.send_flagptrs[i], 1);
+    atomicAdd_system(params.send_flagptrs[i], 1);
   }
 
   for (int i = 0; i < params.n; i++) {
@@ -2547,7 +2547,7 @@ void userbuffers_barrier(const int handler, communicator *comm,
     int peerlocal = peer % comm->nvsize;
     params.send_flagptrs[i] = (int*)GET_SEND_PTR_BY_INDEX(peerlocal, comm, handler, 0);
     params.recv_flagptrs[i] = (int*)GET_RECV_PTR_BY_INDEX(peer, comm, handler, 0);
-    params.recv_ids[i] = &comm->recv_id[recv_peer * NVTE_MAX_REGIONS + handler];
+    params.recv_ids[i] = &comm->recv_id[peer * NVTE_MAX_REGIONS + handler];
   }
 
   kuserbuffers_barrier<<<1, 1, 0, stream>>>(params, comm->ub_timeout);
