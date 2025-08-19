@@ -1087,7 +1087,10 @@ void CommOverlapP2PBase::split_overlap_rs(const TensorWrapper &A, bool transa,
 
   // Don't send any messages until all processes have gotten to this point
   // This is a performance optimization.
-  userbuffers_barrier(_ub_reg, _tp_id, _tp_size, _rank_round_tp, _ub_comm, _stream_send[0]);
+  int *counter_ptr = reinterpret_cast<int *>(_counter.dptr());
+  reset_counters(counter_ptr, _tp_size, true, _stream_send[0]);
+  userbuffers_sendrecv_multiatomic(_ub_reg, _ub_reg, 0, 0, 0, _ub_comm, _next_rank, _prev_rank, _tp_size, counter_ptr, true, _stream_send[0]);
+  
   NVTE_CHECK_CUDA(cudaEventRecord(_start_comm, _stream_send[0]));
   for (int i = 1; i < _stream_send.size(); i++) {
     NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_send[i], _start_comm, 0));

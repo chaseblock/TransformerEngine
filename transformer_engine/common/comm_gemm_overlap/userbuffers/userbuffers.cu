@@ -2543,54 +2543,6 @@ void userbuffers_recv(const int srchandler, const size_t srcoffset, const int ds
   }
 }
 
-struct FlagPtrs {
-  int *sendFlags[8];
-  int *recvFlags[8];
-  int *recv_ids[8];
-  int n;
-};
-__global__ void kuserbuffers_sync_all(FlagPtrs flagParams, uint64_t ub_timeout) {
-  for(int i = 0; i < flagParams.n; i++) {
-    atomicAdd_system(flagParams.sendFlags[i], 1);
-  }
-
-  for(int i = 0; i < flagParams.n; i++) {
-    const int signal_id = (*(flagParams.recv_ids[i]) + 1);
-    *(flagParams.recv_ids[i]) = signal_id;
-    volatile int *flag = (volatile int *)(flagParams.recvFlags[i]);
-    if (*flag >= signal_id) return;
-    clock_t s = clock64();
-    while (CHECK_IDS(*flag, signal_id)) {
-      if (CHECK_TIMEOUT(s, ub_timeout)) {
-        UB_PRINT("sync failed! iter %d", i);
-        return;
-      }
-    }
-  }
-}
-
-void userbuffers_barrier(const int handler, int tp_rank, int tp_size, int tp_base,
-                         communicator *comm, cudaStream_t stream)
-{
-  FlagPtrs flagParams;
-  flagParams.n = 0;
-
-  for(int i = 0; i < tp_size; i++) {
-    if(i == tp_rank)
-      continue;
-    
-    int peer = (i + tp_base);
-    int peerlocal = peer % comm->nvsize;
-    
-    flagParams.sendFlags[flagParams.n] = reinterpret_cast<int *>(GET_SEND_PTR_BY_INDEX(peerlocal, comm, handler, 0));
-    flagParams.recvFlags[flagParams.n] = reinterpret_cast<int *>(GET_RECV_PTR_BY_INDEX(peerlocal, comm, handler, 0));
-    flagParams.recv_ids[flagParams.n] = &comm->recv_id[peer * NVTE_MAX_REGIONS + handler];
-    flagParams.n++;
-  }
-
-  kuserbuffers_sync_all<<<1, 1, 0, stream>>>(flagParams, comm->ub_timeout);
-}
-
 void userbuffers_send_all(const int srchandler, const size_t srcoffset, const int dsthandler,
                           const size_t dstoffset, const size_t bytes_per_slice, int tp_rank,
                           int tp_size, communicator *comm, cudaStream_t stream) {
