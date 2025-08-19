@@ -2506,6 +2506,53 @@ void userbuffers_sendrecv_multiatomic(const int srchandler, const int dsthandler
       &cfg, reinterpret_cast<void *>(kuserbuffers_pushsendrecv_multiatomic), kernelArgs));
 }
 
+struct BarrierParams {
+  int *send_flagptrs[8];
+  int *recv_flagptrs[8];
+  int *recv_ids[8];
+  int n;
+}
+__global__ void __launch_bounds__(1) kuserbuffers_barrier(BarrierParams params, uint64_t ub_timeout) {
+  
+  for (int i = 0; i < params.n; i++) {
+    // Increment the pointer on the remote
+    atomicAdd_system(parms.send_flagptrs[i], 1);
+  }
+
+  for (int i = 0; i < params.n; i++) {
+    // Wait for remote to increment our pointer
+    const int signal_id = (*(params.recv_ids[i])) + 1;
+    *(params.recv_ids[i]) = signal_id;
+    volatile int *flag = (volatile int *)params.recv_flagptrs[i];
+    clock_t s = clock64();
+    while (CHECK_IDS(*flag, signal_id)) {
+      if (CHECK_TIMEOUT(s, ub_timeout)) {
+        UB_PRINT(
+            "pushsendrecv multiatomic expecting %d, observed %d", signal_id, *flag); /*return;*/
+        // CE mode is not supported for multi-atomic, so there is no need to check for a deadlock
+        return;
+      }
+    }
+  }
+}
+
+void userbuffers_barrier(const int handler, communicator *comm,
+                         const int my_rank, const int tp_size,
+                         const int tp_base, cudaStream_t stream) {
+
+  BarrierParams params;
+  params.n = tp_size - 1;
+  for(int i = 0; i < tp_size - 1; i++) {
+    int peer = (tp_size + my_rank + i) % tp_size + tp_base;
+    int peerlocal = peer % comm->nvsize;
+    params.send_flagptrs[i] = (int*)GET_SEND_PTR_BY_INDEX(peerlocal, comm, handler, 0);
+    params.recv_flagptrs[i] = (int*)GET_RECV_PTR_BY_INDEX(peer, comm, handler, 0);
+    params.recv_ids[i] = &comm->recv_id[recv_peer * NVTE_MAX_REGIONS + handler];
+  }
+
+  kuserbuffers_barrier<<<1, 1, 0, stream>>>(params, comm->ub_timeout);
+}
+
 void userbuffers_recv(const int srchandler, const size_t srcoffset, const int dsthandler,
                       const size_t dstoffset, const size_t bytes, communicator *comm,
                       const int peer, cudaStream_t stream) {

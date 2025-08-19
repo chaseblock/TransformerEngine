@@ -285,6 +285,9 @@ void userbuffers_sendrecv_multiatomic(const int srchandler, const int dsthandler
                                       const size_t bytes, communicator *comm, const int send_peer,
                                       const int recv_peer, const int nchunks, void *counters,
                                       bool shuffle, cudaStream_t stream = 0);
+void userbuffers_barrier(const int handler, communicator *comm,
+                         const int my_rank, const int tp_size,
+                         const int tp_base, cudaStream_t stream);
 
 // alltoall split send and recv to allow for overlap
 // send kicks in sending data to the destination - invoke on same stream as data generation
