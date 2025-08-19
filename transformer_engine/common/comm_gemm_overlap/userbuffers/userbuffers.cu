@@ -2527,9 +2527,7 @@ __global__ void __launch_bounds__(1) kuserbuffers_barrier(BarrierParams params, 
     clock_t s = clock64();
     while (CHECK_IDS(*flag, signal_id)) {
       if (CHECK_TIMEOUT(s, ub_timeout)) {
-        UB_PRINT(
-            "pushsendrecv multiatomic expecting %d, observed %d", signal_id, *flag); /*return;*/
-        // CE mode is not supported for multi-atomic, so there is no need to check for a deadlock
+        UB_PRINT("barrier expecting %d, observed %d", signal_id, *flag);
         return;
       }
     }
