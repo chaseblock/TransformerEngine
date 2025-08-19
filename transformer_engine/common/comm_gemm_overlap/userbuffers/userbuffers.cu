@@ -2537,7 +2537,6 @@ __global__ void __launch_bounds__(1) kuserbuffers_barrier(BarrierParams params, 
 void userbuffers_barrier(const int handler, communicator *comm,
                          const int my_rank, const int tp_size,
                          const int tp_base, cudaStream_t stream) {
-
   BarrierParams params;
   params.n = tp_size - 1;
   for(int i = 0; i < tp_size - 1; i++) {
