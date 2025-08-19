@@ -2471,8 +2471,9 @@ void userbuffers_sendrecv_multiatomic(const int srchandler, const int dsthandler
   int recv_peerlocal = recv_peer % comm->nvsize;
   void *flagptr_send = GET_SEND_PTR_BY_INDEX(send_peerlocal, comm, dsthandler, 0);
   void *flagptr_recv = GET_RECV_PTR_BY_INDEX(recv_peer, comm, dsthandler, 0);
+  bool signalonly = ((bytes / 16) == 0);
 
-  SETUP_LAUNCH_CONFIG(comm->sms, 1024, stream);
+  SETUP_LAUNCH_CONFIG(signalonly ? 1 : comm->sms, 1024, stream);
 
   int *arg1 = &comm->send_id[send_peer];
   int *arg2 = reinterpret_cast<int *>(flagptr_send);
@@ -2483,7 +2484,7 @@ void userbuffers_sendrecv_multiatomic(const int srchandler, const int dsthandler
   int arg7 = recv_peer;
   int *arg8 = &comm->recv_id[recv_peer * NVTE_MAX_REGIONS + dsthandler];
   int *arg9 = reinterpret_cast<int *>(flagptr_recv);
-  int arg10 = comm->sms;
+  int arg10 = signalonly ? 1 : comm->sms;
   void *arg11 = counters;
   int arg12 = nchunks;
   int arg13 = send_stride;

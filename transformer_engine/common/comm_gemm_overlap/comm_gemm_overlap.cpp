@@ -91,7 +91,7 @@ CommOverlapCore::CommOverlapCore(int myrank, int numranks, int mylocal, int numl
   _math_sms -= transformer_engine::getenv<int>("NVTE_EXT_MARGIN_SM", 0);
 
   _atomic_gemm = atomic_gemm;
-  if (_atomic_gemm) {
+  //if (_atomic_gemm) {
     void *counter_ptr;
     size_t counter_bytes = _num_splits * 2 * sizeof(int32_t);
     NVTE_CHECK_CUDA(cudaMalloc(&counter_ptr, counter_bytes));
@@ -99,7 +99,7 @@ CommOverlapCore::CommOverlapCore(int myrank, int numranks, int mylocal, int numl
     NVTE_CHECK_CUDA(cudaMemset(counter_ptr, 1, counter_bytes / 2));
     _counter = TensorWrapper(counter_ptr, std::vector<size_t>{static_cast<size_t>(_num_splits * 2)},
                              DType::kInt32);
-  }
+  //}
   // CUDA event creation
   cudaEventCreateWithFlags(&_start_compute, 0);
   cudaEventCreateWithFlags(&_stop_compute, 0);
@@ -1089,10 +1089,10 @@ void CommOverlapP2PBase::split_overlap_rs(const TensorWrapper &A, bool transa,
   // This is a performance optimization.
   int *counter_ptr = reinterpret_cast<int *>(_counter.dptr());
   reset_counters(counter_ptr, _tp_size, true, _stream_send[0]);
-  userbuffers_sendrecv_multiatomic(_ub_reg, _ub_reg, 0, 0, 0, _ub_comm, _next_rank, _prev_rank, _tp_size, counter_ptr, true, _stream_send[0]);
+  userbuffers_sendrecv_multiatomic(_ub_reg, _ub_reg, 0, 0, 0, _ub_comm, _next_rank, _prev_rank, _tp_size, counter_ptr, true, _stream_send[1]);
   
-  NVTE_CHECK_CUDA(cudaEventRecord(_start_comm, _stream_send[0]));
-  for (int i = 1; i < _stream_send.size(); i++) {
+  NVTE_CHECK_CUDA(cudaEventRecord(_start_comm, _stream_send[1]));
+  for (int i = 0; i < _stream_send.size(); i++) {
     NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_send[i], _start_comm, 0));
   }
 
