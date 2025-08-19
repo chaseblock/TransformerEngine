@@ -2544,14 +2544,14 @@ void userbuffers_recv(const int srchandler, const size_t srcoffset, const int ds
 }
 
 struct FlagPtrs {
-  void *sendFlags[8];
-  void *recvFlags[8];
+  int *sendFlags[8];
+  int *recvFlags[8];
   int *recv_ids[8];
   int n;
 };
 __global__ void kuserbuffers_sync_all(FlagPtrs flagParams, uint64_t ub_timeout) {
   for(int i = 0; i < flagParams.n; i++) {
-    atomicAdd_system((int*)flagParams.sendFlags[i], 1);
+    atomicAdd_system(flagParams.sendFlags[i], 1);
   }
 
   for(int i = 0; i < flagParams.n; i++) {
@@ -2579,10 +2579,11 @@ void userbuffers_barrier(const int handler, int tp_rank, int tp_size, int tp_bas
     if(i == tp_rank)
       continue;
     
-    int peer = i + tp_base;
+    int peer = (i + tp_base);
+    int peerlocal = peer % comm->nvsize;
     
-    flagParams.sendFlags[flagParams.n] = GET_SEND_PTR_BY_INDEX(peer, comm, handler, 0);
-    flagParams.recvFlags[flagParams.n] = GET_RECV_PTR_BY_INDEX(peer, comm, handler, 0);
+    flagParams.sendFlags[flagParams.n] = reinterpret_cast<int *>(GET_SEND_PTR_BY_INDEX(peerlocal, comm, handler, 0));
+    flagParams.recvFlags[flagParams.n] = reinterpret_cast<int *>(GET_RECV_PTR_BY_INDEX(peerlocal, comm, handler, 0));
     flagParams.recv_ids[flagParams.n] = &comm->recv_id[peer * NVTE_MAX_REGIONS + handler];
     flagParams.n++;
   }
