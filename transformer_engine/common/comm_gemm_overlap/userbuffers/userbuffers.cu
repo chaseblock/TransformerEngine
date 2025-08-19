@@ -2473,7 +2473,7 @@ void userbuffers_sendrecv_multiatomic(const int srchandler, const int dsthandler
   void *flagptr_recv = GET_RECV_PTR_BY_INDEX(recv_peer, comm, dsthandler, 0);
   bool signalonly = ((bytes / 16) == 0);
 
-  SETUP_LAUNCH_CONFIG(signalonly ? 1 : comm->sms, 1024, stream);
+  SETUP_LAUNCH_CONFIG(signalonly ? 1 : comm->sms, signalonly ? 1 : 1024, stream);
 
   int *arg1 = &comm->send_id[send_peer];
   int *arg2 = reinterpret_cast<int *>(flagptr_send);
