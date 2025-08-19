@@ -2544,33 +2544,25 @@ void userbuffers_recv(const int srchandler, const size_t srcoffset, const int ds
 }
 
 struct FlagPtrs {
-  int *sendFlags[8];
-  int *recvFlags[8];
+  void *sendFlags[8];
+  void *recvFlags[8];
   int *recv_ids[8];
   int n;
 };
-__global__ void __launch_bounds__(1)
-    kuserbuffers_sync_all(FlagPtrs flagParams, uint64_t ub_timeout) {
-  
+__global__ void kuserbuffers_sync_all(FlagPtrs flagParams, uint64_t ub_timeout) {
   for(int i = 0; i < flagParams.n; i++) {
-    atomicAdd_system(flagParams.sendflags[i], 1);
+    atomicAdd_system((int*)flagParams.sendFlags[i], 1);
   }
 
   for(int i = 0; i < flagParams.n; i++) {
     const int signal_id = (*(flagParams.recv_ids[i]) + 1);
     *(flagParams.recv_ids[i]) = signal_id;
-    volatile int *flag = (volatile int *)(flagParams.recvflags[i]);
+    volatile int *flag = (volatile int *)(flagParams.recvFlags[i]);
     if (*flag >= signal_id) return;
     clock_t s = clock64();
     while (CHECK_IDS(*flag, signal_id)) {
       if (CHECK_TIMEOUT(s, ub_timeout)) {
-        UB_PRINT(
-            "pushrecv [grank dst:%d global src:%d][nvrank(GPU) dst: %d src: %d]: "
-            "expecting %d, observed %d",
-            myrank, peer, nvrank, nvpeer, signal_id, *flag);
-        if (CHECK_CE(ce_start_ptr, ce_end_ptr))
-          UB_PRINT("pushrecv: CE deadlock DETECTED: %d (ce_start) != %d (ce_end)\n", *ce_start_ptr,
-                  *ce_end_ptr);
+        UB_PRINT("sync failed! iter %d", i);
         return;
       }
     }
