@@ -926,6 +926,39 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
     size_t output_chunk_size = n_chunk * m;
 
     for (int i = 0; i < _tp_size; i++) {
+      if (i < _tp_size - 1) {
+        // P2P communication
+        userbuffers_send(_ub_reg, send_offset, _ub_reg, send_offset, comm_bytes, _ub_comm,
+                         _next_rank, _stream_send[0]);
+        userbuffers_recv(_ub_reg, recv_offset, _ub_reg, recv_offset, comm_bytes, _ub_comm,
+                         _prev_rank, _stream_recv);
+        NVTE_CHECK_CUDA(cudaEventRecord(_stop_recv, _stream_recv));
+        NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_send[0], _stop_recv, 0));
+        NVTE_CHECK_CUDA(
+            cudaStreamWaitEvent(_stream_compute[(i + 1) % _stream_compute.size()], _stop_recv, 0));
+      } else if (B_copy.numel() > 0) {
+        assert(B_copy.numel() == _ubufs[_tp_id].numel());
+        assert(B_copy.element_size() == _ubufs[_tp_id].element_size());
+        NVTE_CHECK_CUDA(cudaMemcpyAsync(B_copy.dptr(), _ubufs[_tp_id].dptr(),
+                                        _ubufs[_tp_id].bytes(), cudaMemcpyDeviceToDevice,
+                                        _stream_send[0]));
+      }
+    }
+
+    // Force the compute streams to wait for the send and recv streams before beginning
+    for(int i = 0; i < _stream_send.size()) {
+      NVTE_CHECK_CUDA(cudaEventRecord(_stop_send, _stream_send[i]));
+      NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_recv, _stop_send));
+    }
+    NVTE_CHECK_CUDA(cudaEventRecord(_stop_recv, _stream_recv));
+    for(int i = 0; i < _stream_compute.size(); i++) {
+      NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_compute[i], _stop_recv, 0));
+    }
+
+    userbuffers_tiny_delay(_stream_send[0]);
+    NVTE_CHECK_CUDA(cudaEventRecord(_start_compute, _stream_send[0]));
+
+    for (int i = 0; i < _tp_size; i++) {
       // Set the userbuffer id. Buffer under send is the input for the current
       // GEMM chunk The initial input chunk is stored _ubuf[rank]. This is to
       // have the AG output in all ranks to be contiguous after the ring
@@ -947,28 +980,18 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
       auto workspace_chunk = get_tensor_chunk(
           workspace, (i % _stream_compute.size()) * workspace_size_chunk, {workspace_size_chunk});
 
+      // Enforce proper ordering of the GEMM kernels to make sure that we get overlaps
+      if(i == 1) {
+        NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_compute[i % _stream_compute.size()], _start_compute));
+      } else if (i > 1) {
+        NVTE_CHECK_CUDA(cudaEventRecord(_start_compute, _stream_compute[(i - 2) % _stream_compute.size()]));
+        NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_compute[i % _stream_compute.size()], _start_compute));
+      }
+
       nvte_cublas_gemm(A.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
                        aux_chunk.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
                        use_split_accumulator, _math_sms,
                        _stream_compute[i % _stream_compute.size()]);
-
-      if (i < _tp_size - 1) {
-        // P2P communication
-        userbuffers_send(_ub_reg, send_offset, _ub_reg, send_offset, comm_bytes, _ub_comm,
-                         _next_rank, _stream_send[0]);
-        userbuffers_recv(_ub_reg, recv_offset, _ub_reg, recv_offset, comm_bytes, _ub_comm,
-                         _prev_rank, _stream_recv);
-        NVTE_CHECK_CUDA(cudaEventRecord(_stop_recv, _stream_recv));
-        NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_send[0], _stop_recv, 0));
-        NVTE_CHECK_CUDA(
-            cudaStreamWaitEvent(_stream_compute[(i + 1) % _stream_compute.size()], _stop_recv, 0));
-      } else if (B_copy.numel() > 0) {
-        assert(B_copy.numel() == _ubufs[_tp_id].numel());
-        assert(B_copy.element_size() == _ubufs[_tp_id].element_size());
-        NVTE_CHECK_CUDA(cudaMemcpyAsync(B_copy.dptr(), _ubufs[_tp_id].dptr(),
-                                        _ubufs[_tp_id].bytes(), cudaMemcpyDeviceToDevice,
-                                        _stream_send[0]));
-      }
     }
   }
 
@@ -1107,22 +1130,30 @@ void CommOverlapP2PBase::split_overlap_rs(const TensorWrapper &A, bool transa,
     nvte_cublas_gemm(A.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
                      pre_gelu_out.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
                      use_split_accumulator, _math_sms, _stream_compute[stream_id]);
+  }
 
-    if (i > 0) {
-      // P2P communication chunk
-      int prev_stream_id = (i - 1) % _stream_compute.size();
-      int send_offset = comm_bytes * (i - 1);
-      int recv_offset = comm_bytes * (i - 1 + _tp_size);
-      int send_rank = (_tp_id + i) % _tp_size + _rank_round_tp;
-      int recv_rank = (_tp_size + _tp_id - i) % _tp_size + _rank_round_tp;
-      NVTE_CHECK_CUDA(cudaEventRecord(_start_comm, _stream_compute[prev_stream_id]));
-      NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_send[prev_stream_id], _start_comm, 0));
-      NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_recv, _start_comm, 0));
-      userbuffers_send(_ub_reg, send_offset, _ub_reg, recv_offset, comm_bytes, _ub_comm, send_rank,
-                       _stream_send[prev_stream_id]);
-      userbuffers_recv(_ub_reg, send_offset, _ub_reg, recv_offset, comm_bytes, _ub_comm, recv_rank,
-                       _stream_recv);
+  // Don't start issuing communication until all of the computation has completed.
+  for (int i = 0; i < _stream_compute.size(); i++) {
+    NVTE_CHECK_CUDA(cudaEventRecord(_start_comm, _stream_compute[i]));
+    for (int j = 0; j < _stream_send.size(); j++) {
+      NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_send[j], _start_comm, 0));
     }
+    NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_recv, _start_comm, 0));
+  }
+  for(int i = 1; i < _tp_size; i++) {
+    // P2P communication chunk
+    int prev_stream_id = (i - 1) % _stream_compute.size();
+    int send_offset = comm_bytes * (i - 1);
+    int recv_offset = comm_bytes * (i - 1 + _tp_size);
+    int send_rank = (_tp_id + i) % _tp_size + _rank_round_tp;
+    int recv_rank = (_tp_size + _tp_id - i) % _tp_size + _rank_round_tp;
+    NVTE_CHECK_CUDA(cudaEventRecord(_start_comm, _stream_compute[prev_stream_id]));
+    NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_send[prev_stream_id], _start_comm, 0));
+    NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_recv, _start_comm, 0));
+    userbuffers_send(_ub_reg, send_offset, _ub_reg, recv_offset, comm_bytes, _ub_comm, send_rank,
+                      _stream_send[prev_stream_id]);
+    userbuffers_recv(_ub_reg, send_offset, _ub_reg, recv_offset, comm_bytes, _ub_comm, recv_rank,
+                      _stream_recv);
   }
 
   for (size_t i = 0; i < _stream_compute.size(); i++) {
