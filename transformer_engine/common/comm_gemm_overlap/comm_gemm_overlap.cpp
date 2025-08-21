@@ -1085,6 +1085,16 @@ void CommOverlapP2PBase::split_overlap_rs(const TensorWrapper &A, bool transa,
   userbuffers_tiny_delay(_stream_send[0]);
   NVTE_CHECK_CUDA(cudaEventRecord(_start_compute, _stream_send[0]));
 
+  // Don't send any messages until all processes have gotten to this point
+  // This is a performance optimization.
+  NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_recv, _start_compute, 0));
+  userbuffers_barrier(_ub_reg, _ub_comm, _tp_id, _tp_size, _rank_round_tp, _stream_recv);
+
+  NVTE_CHECK_CUDA(cudaEventRecord(_start_comm, _stream_recv));
+  for (int i = 0; i < _stream_send.size(); i++) {
+    NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_send[i], _start_comm, 0));
+  }
+
   // GEMM and send/recv chunks
   for (int i = 0; i < _tp_size; i++) {
     // GEMM chunk
@@ -1107,18 +1117,6 @@ void CommOverlapP2PBase::split_overlap_rs(const TensorWrapper &A, bool transa,
     nvte_cublas_gemm(A.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
                      pre_gelu_out.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
                      use_split_accumulator, _math_sms, _stream_compute[stream_id]);
-
-    if (i == 0) {
-      // Don't send any messages until all processes have gotten to this point
-      // This is a performance optimization.
-      userbuffers_barrier(_ub_reg, _ub_comm, _tp_id, _tp_size, _rank_round_tp, _stream_compute[0]);
-
-      NVTE_CHECK_CUDA(cudaEventRecord(_start_comm, _stream_compute[0]));
-      for (int i = 0; i < _stream_send.size(); i++) {
-        NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_send[i], _start_comm, 0));
-      }
-      NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_recv, _start_comm, 0));
-    }
 
     if (i > 0) {
       // P2P communication chunk
