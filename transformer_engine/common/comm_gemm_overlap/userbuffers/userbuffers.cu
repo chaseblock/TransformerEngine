@@ -2539,8 +2539,8 @@ void userbuffers_barrier(const int handler, communicator *comm,
                          const int tp_base, cudaStream_t stream) {
   BarrierParams params;
   params.n = tp_size - 1;
-  for(int i = 0; i < tp_size - 1; i++) {
-    int peer = (tp_size + my_rank + i) % tp_size + tp_base;
+  for(int i = 1; i < tp_size; i++) {
+    int peer = (my_rank + i) % tp_size + tp_base;
     int peerlocal = peer % comm->nvsize;
     params.send_flagptrs[i] = (int*)GET_SEND_PTR_BY_INDEX(peerlocal, comm, handler, 0);
     params.recv_flagptrs[i] = (int*)GET_RECV_PTR_BY_INDEX(peer, comm, handler, 0);
