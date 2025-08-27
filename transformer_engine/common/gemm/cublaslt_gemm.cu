@@ -591,6 +591,14 @@ void cublas_gemm(const Tensor *inputA, const Tensor *inputB, Tensor *outputD,
   NVTE_CHECK_CUBLAS(status);
   if (returnedResults == 0) NVTE_ERROR("Unable to find any suitable algorithms");
 
+  if(batch_sz > 1) {
+    batch_sz = 1;
+    NVTE_CHECK_CUBLAS(cublasLtMatrixLayoutSetAttribute(Adesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_sz, sizeof(batch_sz)));
+    NVTE_CHECK_CUBLAS(cublasLtMatrixLayoutSetAttribute(Bdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_sz, sizeof(batch_sz)));
+    NVTE_CHECK_CUBLAS(cublasLtMatrixLayoutSetAttribute(Cdesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_sz, sizeof(batch_sz)));
+    NVTE_CHECK_CUBLAS(cublasLtMatrixLayoutSetAttribute(Ddesc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_sz, sizeof(batch_sz)));
+  }
+
   // D = alpha * (A * B) + beta * C
   NVTE_CHECK_CUBLAS(cublasLtMatmul(handle, operationDesc,
                                    static_cast<const void *>(&one),         /* alpha */
