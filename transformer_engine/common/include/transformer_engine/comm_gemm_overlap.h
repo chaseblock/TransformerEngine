@@ -15,7 +15,7 @@
 
 #include "common/comm_gemm_overlap/userbuffers/userbuffers.h"
 
-#define NVTE_COMM_OVERLAP_MAX_STREAMS 3
+#define NVTE_COMM_OVERLAP_MAX_STREAMS 4
 
 namespace transformer_engine {
 
@@ -153,7 +153,7 @@ class CommOverlapBase : public CommOverlapCore {
 
   CommOverlapBase(const std::vector<size_t> &buffer_shape, DType buffer_dtype, int myrank,
                   int numranks, int mylocal, int numlocal, int mynode, int numnodes, int tp_size,
-                  ExtAllgatherOp allgather_handle, ExtBarrierOp barrier_handle, int num_splits = 3,
+                  ExtAllgatherOp allgather_handle, ExtBarrierOp barrier_handle, int num_splits = 4,
                   int num_max_streams = NVTE_COMM_OVERLAP_MAX_STREAMS, int comm_cga_size = 2,
                   int gemm_priority = 0, int comm_priority = 0, int num_comm_sm = 16,
                   bool set_sm_margin = true, bool atomic_gemm = false,

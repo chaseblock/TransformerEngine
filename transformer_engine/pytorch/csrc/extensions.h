@@ -466,7 +466,7 @@ class CommOverlapHelper : torch::CustomClassHolder {
 class CommOverlap : torch::CustomClassHolder, public transformer_engine::CommOverlapBase {
  public:
   CommOverlap(const std::vector<size_t> &buffer_shape, at::ScalarType buffer_dtype,
-              CommOverlapHelper *helper, int tp_size, int num_splits = 3,
+              CommOverlapHelper *helper, int tp_size, int num_splits = 4,
               int num_max_streams = NVTE_COMM_OVERLAP_MAX_STREAMS, int comm_cga_size = 2,
               int gemm_priority = 0, int comm_priority = 0, int num_comm_sm = 16,
               bool set_sm_margin = true, bool atomic_gemm = false,

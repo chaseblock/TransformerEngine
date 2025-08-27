@@ -926,31 +926,10 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
     size_t output_chunk_size = n_chunk * m;
 
     for (int i = 0; i < _tp_size; i++) {
-      // Set the userbuffer id. Buffer under send is the input for the current
-      // GEMM chunk The initial input chunk is stored _ubuf[rank]. This is to
-      // have the AG output in all ranks to be contiguous after the ring
-      // exchanges
       int send_chunk_id = (_tp_size + _tp_id - i) % _tp_size;
       int recv_chunk_id = (_tp_size + _tp_id - i - 1) % _tp_size;
       int send_offset = comm_bytes * send_chunk_id;
       int recv_offset = comm_bytes * recv_chunk_id;
-
-      // GEMM
-      auto input_b_chunk =
-          get_buffer_chunk_like(B, input_b_chunk_size * send_chunk_id, input_b_chunk_shape);
-      auto output_chunk =
-          get_tensor_chunk(D, output_chunk_size * send_chunk_id, output_chunk_shape);
-      auto aux_chunk =
-          (do_gelu)
-              ? get_tensor_chunk(pre_gelu_out, output_chunk_size * send_chunk_id, {n_chunk, k})
-              : TensorWrapper(nullptr, std::vector<size_t>{0}, pre_gelu_out.dtype());
-      auto workspace_chunk = get_tensor_chunk(
-          workspace, (i % _stream_compute.size()) * workspace_size_chunk, {workspace_size_chunk});
-
-      nvte_cublas_gemm(A.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
-                       aux_chunk.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
-                       use_split_accumulator, _math_sms,
-                       _stream_compute[i % _stream_compute.size()]);
 
       if (i < _tp_size - 1) {
         // P2P communication
@@ -968,6 +947,57 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
         NVTE_CHECK_CUDA(cudaMemcpyAsync(B_copy.dptr(), _ubufs[_tp_id].dptr(),
                                         _ubufs[_tp_id].bytes(), cudaMemcpyDeviceToDevice,
                                         _stream_send[0]));
+      }
+    }
+
+    for (int i = 0; i < _tp_size; i++) {
+      int send_chunk_id = (_tp_size + _tp_id - i) % _tp_size;
+
+      if (i == 0) {
+        auto input_b_chunk =
+          get_buffer_chunk_like(B, input_b_chunk_size * send_chunk_id, input_b_chunk_shape);
+        auto output_chunk =
+            get_tensor_chunk(D, output_chunk_size * send_chunk_id, output_chunk_shape);
+        auto aux_chunk =
+            (do_gelu)
+                ? get_tensor_chunk(pre_gelu_out, output_chunk_size * send_chunk_id, {n_chunk, k})
+                : TensorWrapper(nullptr, std::vector<size_t>{0}, pre_gelu_out.dtype());
+        auto workspace_chunk = get_tensor_chunk(
+            workspace, (i % _stream_compute.size()) * workspace_size_chunk, {workspace_size_chunk});
+
+        nvte_cublas_gemm(A.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
+                        aux_chunk.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
+                        use_split_accumulator, _math_sms,
+                        _stream_compute[i % _stream_compute.size()]);
+      } else {
+        // Process multiple GEMM chunks
+        
+        // Get the index of the final gemm in this chunk that we want to include
+        int j;
+        for(j = i + 1; (j + _tp_id != _tp_size) && (j < _tp_size); j++);
+        j--;
+
+        int num_gemms = j - i + 1;
+
+        auto input_b_bulk_shape = (transb ? std::vector<size_t>{k, n_chunk * num_gemms} : std::vector<size_t>{n_chunk * num_gemms, k});
+        std::vector<size_t> output_bulk_shape = {n_chunk * num_gemms, m};
+
+        auto input_b_chunk = 
+          get_buffer_chunk_like(B, input_b_chunk_size * send_chunk_id, input_b_bulk_shape);
+        auto output_chunk =
+          get_buffer_chunk_like(D, output_chunk_size * send_chunk_id, output_bulk_shape);
+        auto aux_chunk =
+            (do_gelu)
+                ? get_tensor_chunk(pre_gelu_out, output_chunk_size * send_chunk_id, {n_chunk * num_gemms, k})
+                : TensorWrapper(nullptr, std::vector<size_t>{0}, pre_gelu_out.dtype());
+        auto workspace_chunk = get_tensor_chunk(
+            workspace, (i % _stream_compute.size()) * workspace_size_chunk, {workspace_size_chunk * num_gemms});
+
+        nvte_cublas_gemm(A.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
+                         aux_chunk.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
+                         use_split_accumulator, _math_sms, _stream_compute[i % _stream_compute.size()]);
+
+        i += (j - 1);
       }
     }
   }
