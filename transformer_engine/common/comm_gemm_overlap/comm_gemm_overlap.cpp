@@ -74,7 +74,7 @@ CommOverlapCore::CommOverlapCore(int myrank, int numranks, int mylocal, int numl
     _gemm_priority = gemm_priority;
     _comm_priority = comm_priority;
   }
-  for (int i = 0; i < num_splits; i++) {
+  for (int i = 0; i < std::min(num_max_streams, num_splits); i++) {
     cudaStream_t stream;
     NVTE_CHECK_CUDA(cudaStreamCreateWithPriority(&stream, cudaStreamNonBlocking, _gemm_priority));
     _stream_compute.push_back(std::move(stream));
@@ -1165,7 +1165,7 @@ void CommOverlapP2PBase::split_overlap_rs(const TensorWrapper &A, bool transa,
     NVTE_CHECK_CUDA(cudaEventRecord(_stop_compute, _stream_compute[i]));
     NVTE_CHECK_CUDA(cudaStreamWaitEvent(stream_main, _stop_compute, 0));
   }
-  for (size_t i = 0; i < _stream_compute.size(); i++) {
+  for (size_t i = 0; i < std::min(_stream_compute.size(), _tp_size - 1); i++) {
     NVTE_CHECK_CUDA(cudaEventRecord(_stop_send, _stream_send[i]));
     NVTE_CHECK_CUDA(cudaStreamWaitEvent(stream_main, _stop_send, 0));
   }
