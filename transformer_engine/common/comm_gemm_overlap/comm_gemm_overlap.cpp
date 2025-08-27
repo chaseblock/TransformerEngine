@@ -989,7 +989,7 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
         auto input_b_chunk = 
           get_buffer_chunk_like(B, input_b_chunk_size * send_chunk_id, input_b_bulk_shape);
         auto output_chunk =
-          get_buffer_chunk_like(D, output_chunk_size * send_chunk_id, output_bulk_shape);
+          get_tensor_chunk(D, output_chunk_size * send_chunk_id, output_bulk_shape);
         auto aux_chunk =
             (do_gelu)
                 ? get_tensor_chunk(pre_gelu_out, output_chunk_size * send_chunk_id, {n_chunk * num_gemms, k})
