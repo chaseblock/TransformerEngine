@@ -74,7 +74,7 @@ CommOverlapCore::CommOverlapCore(int myrank, int numranks, int mylocal, int numl
     _gemm_priority = gemm_priority;
     _comm_priority = comm_priority;
   }
-  for (int i = 0; i < std::min(num_max_streams, num_splits); i++) {
+  for (int i = 0; i < num_splits; i++) {
     cudaStream_t stream;
     NVTE_CHECK_CUDA(cudaStreamCreateWithPriority(&stream, cudaStreamNonBlocking, _gemm_priority));
     _stream_compute.push_back(std::move(stream));
@@ -974,10 +974,17 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
         
         // Get the index of the final gemm in this chunk that we want to include
         int j;
-        for(j = i + 1; (j + _tp_id != _tp_size) && (j < _tp_size); j++);
+        for(j = i + 1; ((_tp_size + _tp_id - j) % _tp_size <= send_chunk_id) && (j < _tp_size); j++);
         j--;
 
+        send_chunk_id = (_tp_size + _tp_id - j) % _tp_size;
         int num_gemms = j - i + 1;
+
+        // Delay until all data is received
+        NVTE_CHECK_CUDA(cudaEventRecord(_start_compute, _stream_compute[i % _stream_compute.size()]));
+        for(int t = i; t <= j; t++) {
+          NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_compute[t % _stream_compute.size()], _start_compute, 0));
+        }
 
         auto input_b_bulk_shape = (transb ? std::vector<size_t>{k, n_chunk * num_gemms} : std::vector<size_t>{n_chunk * num_gemms, k});
         std::vector<size_t> output_bulk_shape = {n_chunk * num_gemms, m};
@@ -997,7 +1004,7 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
                          aux_chunk.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
                          use_split_accumulator, _math_sms, _stream_compute[i % _stream_compute.size()]);
 
-        i += (j - 1);
+        i += (num_gemms - 1);
       }
     }
   }
