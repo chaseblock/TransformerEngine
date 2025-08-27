@@ -926,6 +926,10 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
     size_t output_chunk_size = n_chunk * m;
 
     for (int i = 0; i < _tp_size; i++) {
+      int send_chunk_id = (_tp_size + _tp_id - i) % _tp_size;
+      int recv_chunk_id = (_tp_size + _tp_id - i - 1) % _tp_size;
+      int send_offset = comm_bytes * send_chunk_id;
+      int recv_offset = comm_bytes * recv_chunk_id;
       if (i < _tp_size - 1) {
         // P2P communication
         userbuffers_send(_ub_reg, send_offset, _ub_reg, send_offset, comm_bytes, _ub_comm,
@@ -946,7 +950,7 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
     }
 
     // Force the compute streams to wait for the send and recv streams before beginning
-    for(int i = 0; i < _stream_send.size()) {
+    for(int i = 0; i < _stream_send.size(); i++) {
       NVTE_CHECK_CUDA(cudaEventRecord(_stop_send, _stream_send[i]));
       NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_recv, _stop_send));
     }
