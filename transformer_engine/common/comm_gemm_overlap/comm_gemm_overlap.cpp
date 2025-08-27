@@ -981,9 +981,8 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
         int num_gemms = j - i + 1;
 
         // Delay until all data is received
-        NVTE_CHECK_CUDA(cudaEventRecord(_start_compute, _stream_compute[i % _stream_compute.size()]));
         for(int t = i; t <= j; t++) {
-          NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_compute[t % _stream_compute.size()], _start_compute, 0));
+          NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_compute[t % _stream_compute.size()], _stop_recv, 0));
         }
 
         auto input_b_bulk_shape = (transb ? std::vector<size_t>{k, n_chunk * num_gemms} : std::vector<size_t>{n_chunk * num_gemms, k});
