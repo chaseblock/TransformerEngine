@@ -981,9 +981,7 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
         int num_gemms = j - i + 1;
 
         // Delay until all data is received
-        for(int t = i; t <= j; t++) {
-          NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_compute[t % _stream_compute.size()], _stop_recv, 0));
-        }
+        NVTE_CHECK_CUDA(cudaStreamWaitEvent(_stream_compute[i % _stream_compute.size()], _stop_recv, 0));
 
         auto input_b_bulk_shape = (transb ? std::vector<size_t>{k, n_chunk * num_gemms} : std::vector<size_t>{n_chunk * num_gemms, k});
         std::vector<size_t> output_bulk_shape = {n_chunk * num_gemms, m};
@@ -997,7 +995,7 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
                 ? get_tensor_chunk(pre_gelu_out, output_chunk_size * send_chunk_id, {n_chunk * num_gemms, k})
                 : TensorWrapper(nullptr, std::vector<size_t>{0}, pre_gelu_out.dtype());
         auto workspace_chunk = get_tensor_chunk(
-            workspace, (i % _stream_compute.size()) * workspace_size_chunk, {workspace_size_chunk * num_gemms});
+            workspace, (i % _stream_compute.size()) * workspace_size_chunk, {workspace_size_chunk});
 
         nvte_cublas_gemm(A.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
                          aux_chunk.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
